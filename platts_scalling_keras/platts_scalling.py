@@ -1,11 +1,20 @@
+import joblib
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import make_classification
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier, \
+    ExtraTreesClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold, cross_val_score, GridSearchCV
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix, classification_report, f1_score
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from matplotlib import pyplot
 
 from platts_scalling_keras.network import create_model, get_gens
 import numpy as np
@@ -91,80 +100,145 @@ def plot_confusion_matrix(cm,
     plt.xlabel('Predicted label\naccuracy={:0.4f}; misclass={:0.4f}'.format(accuracy, misclass))
     plt.show()
 
-def generator_true_classes_to_hot_one(true_classes, num_classes):
-    """
-
-    :param true_classes: list of lists in ridicilous form of: [[3, 2], [0, 2], [3, 2], [1]] etc
-    :return: a list of results in 1-hot encoding (but multilabeled)
-    """
-    results = np.zeros(shape=(len(true_classes), num_classes))
-    for index, labels in enumerate(true_classes):
-        for label_index in labels:
-            results[index][label_index] = 1
-
-    return results
-
-#https://datascience.stackexchange.com/questions/41426/probability-calibration-role-of-hidden-layer-in-neural-network
-
-def probability_scalling(classifier, X_train, y_train, X_test, y_test):
-    # https://scikit-learn.org/stable/auto_examples/calibration/plot_calibration.html#sphx-glr-auto-examples-calibration-plot-calibration-py
-
-    clf_sigmoid = CalibratedClassifierCV(classifier, cv=2, method='sigmoid')
-    clf_sigmoid.fit(X_train, y_train)
-    prob_pos_sigmoid = clf_sigmoid.predict_proba(X_test)[:, 1]
-
-    clf_sigmoid_score = brier_score_loss(y_test, prob_pos_sigmoid)
-    print("With calibration: %1.3f (smaller the better)" % clf_sigmoid_score)
-    debug = 5
-
-    return clf_sigmoid
 
 
 # Function to create model, required for KerasClassifier
 
+def prepare():
+
+    test_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_valid_with_binary.csv',converters={1:ast.literal_eval})
+    train_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_test_with_binary.csv',converters={1:ast.literal_eval})
+    path_to_trained_model = r'/mnt/efs/classification_results/algorithm_results/model_2020-07-23-22-04-35_MobileNetV2 - fine tuned/best_model.h5'
+
+    train_gen, test_gen = get_gens(test_df, train_df)
+
+    model = create_model(path_to_trained_model)
+
+    train_steps_per_epoch = np.ceil(train_gen.samples / train_gen.batch_size)
+    test_steps_per_epoch = np.ceil(test_gen.samples / test_gen.batch_size)
+
+    model_train_predictions = model.predict_generator(train_gen, steps=train_steps_per_epoch)
+
+    train_true_classes = train_df['BINARY_NUDE'].values
+    train_true_classes = train_true_classes * 1 # bool to int
+
+    # X_train, X_test, y_train, y_test,  =  train_test_split(predictions, true_classes, test_size=0.3, random_state=42, stratify=true_classes)
+    X_train = model_train_predictions
+    y_train = train_true_classes
+
+    np.save('X_train.npy', X_train)
+    np.save('y_train.npy', y_train)
+
+    model_test_predictions = model.predict_generator(test_gen, steps=test_steps_per_epoch)
+    test_true_classes = test_df['BINARY_NUDE'].values
+
+    X_test = model_test_predictions
+    y_test = test_true_classes
+
+    np.save('X_test.npy', X_test)
+    np.save('y_test.npy', y_test)
+
+    return X_train,y_train,X_test,y_test
+
+def test(X_train,y_train,X_test,y_test):
+    num_folds = 10
+    seed = 7
+    scoring = 'f1_macro'
 
 
-test_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_valid_with_binary.csv',converters={1:ast.literal_eval})
-train_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_test_with_binary.csv',converters={1:ast.literal_eval})
-path_to_trained_model = r'/mnt/efs/classification_results/algorithm_results/model_2020-07-23-22-04-35_MobileNetV2 - fine tuned/best_model.h5'
+    models = []
+    models.append(('LR', LogisticRegression(solver='liblinear')))
+    models.append(('LDA', LinearDiscriminantAnalysis()))
+    models.append(('KNN', KNeighborsClassifier()))
+    models.append(('CART', DecisionTreeClassifier()))
+    models.append(('NB', GaussianNB()))
+    models.append(('SVM', SVC(gamma='auto')))
+    models.append(('AB', AdaBoostClassifier()))
+    models.append(('GBM', GradientBoostingClassifier()))
+    models.append(('RF', RandomForestClassifier(n_estimators=10)))
+    models.append(('ET', ExtraTreesClassifier(n_estimators=10)))
+    results = []
+    names = []
 
-train_gen, test_gen = get_gens(test_df, train_df)
+    for name, model in models:
+        kfold = KFold(n_splits=num_folds, random_state=seed)
+        cv_results = cross_val_score(model, X_train, y_train, cv=kfold, scoring=scoring)
+        results.append(cv_results)
+        names.append(name)
+        msg = "%s: %f (%f)" % (name, cv_results.mean(), cv_results.std())
+        print(msg)
 
-steps_per_epoch = np.ceil(train_gen.samples / train_gen.batch_size)
 
-model = create_model(path_to_trained_model)
+    fig = pyplot.figure()
+    fig.suptitle('Algorithm Comparison')
+    ax = fig.add_subplot(111)
+    pyplot.boxplot(results)
+    ax.set_xticklabels(names)
+    pyplot.show()
 
-test_steps_per_epoch = np.ceil(train_gen.samples / train_gen.batch_size)
 
-predictions = model.predict_generator(train_gen, steps=test_steps_per_epoch)
+    #tuning best model
+    neighbors = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21]
+    param_grid = dict(n_neighbors=neighbors)
+    model = KNeighborsClassifier()
 
-true_classes = train_df['BINARY_NUDE'].values
-true_classes = true_classes * 1 # bool to int
-debug = 5
+    kfold = KFold(n_splits=num_folds, random_state=seed)
+    grid = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, cv=kfold, iid=True)
+    grid_result = grid.fit(X_train, y_train)
+    print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
+    means = grid_result.cv_results_['mean_test_score']
+    stds = grid_result.cv_results_['std_test_score']
+    params = grid_result.cv_results_['params']
+    for mean, stdev, param in zip(means, stds, params):
+        print("%f (%f) with: %r" % (mean, stdev, param))
 
-X_train, X_test, y_train, y_test,  =  train_test_split(predictions, true_classes, test_size=0.3, random_state=42, stratify=true_classes)
+
+
+
+    #finilizing model
+    model.fit(X_train, y_train)
+    test_predictions = model.predict(X_test)
+
+    print(confusion_matrix(y_test, test_predictions))
+    print(classification_report(y_test, test_predictions))
+
+    filename = 'finalized_model.sav'
+    joblib.dump(model, filename)
+
+
+
+if __name__ == '__main__':
+
+
+    #X_train, y_train, X_test, y_test = prepare()
+
+    print('MAKING DATA UP')
+    X1, Y1 = make_classification(n_features=9, n_redundant=0, n_informative=5, n_classes=2, n_samples=10000)
+    X_train, X_test, y_train, y_test,  =  train_test_split(X1, Y1, test_size=0.3, random_state=42, stratify=Y1)
+
+    test(X_train,y_train,X_test,y_test)
 
 
 #https://datascience.stackexchange.com/questions/41426/probability-calibration-role-of-hidden-layer-in-neural-network
 
-#ir = IsotonicRegression()
-#ir = LogisticRegression(C=1e5)
-ir = RandomForestClassifier()
-ir.fit(X_train,y_train)
-iso_presictions = ir.predict(X_test)
-
-cm = confusion_matrix(y_test, iso_presictions)
-f = sns.heatmap(cm, annot=True)
-plt.show()
-
-#last time results
-#array([[2257,   14],
-       #[  24,  239]])
-
-
-f1_res = f1_score(y_test, iso_presictions)
-print('f1:',f1_res)
-report = classification_report(y_test, iso_presictions)
-print(report)
+# #ir = IsotonicRegression()
+# #ir = LogisticRegression(C=1e5)
+# ir = RandomForestClassifier()
+# ir.fit(X_train,y_train)
+# iso_presictions = ir.predict(X_test)
+#
+# cm = confusion_matrix(y_test, iso_presictions)
+# f = sns.heatmap(cm, annot=True)
+# plt.show()
+#
+# #last time results
+# #array([[2257,   14],
+#        #[  24,  239]])
+#
+#
+# f1_res = f1_score(y_test, iso_presictions)
+# print('f1:',f1_res)
+# report = classification_report(y_test, iso_presictions)
+# print(report)
 
 debug =5
