@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 import xml.etree.ElementTree as ET
 import os
 from pathlib import Path
+from tqdm import tqdm
 
 def convert_annotation(xml_file_path):
 
@@ -82,16 +83,32 @@ def cv_plot_bbox(img, bboxes, scores=None, labels=None, thresh=0.5,
         if scores is not None and scores.flat[i] < thresh:
             continue
 
+        class_name = class_names[i]
+        color_class_map = {
+            'boobs/pecs': (235, 12, 56),
+            'nipples': (235, 12, 187),
+            'faces': (68, 12, 235),
+            'provocative': (12, 146, 235),
+            'vaginas': (12, 235, 198),
+            'vagina': (12, 235, 198),
+            'naked woman': (12, 235, 127),
+            'naked man': (172, 235, 12),
+            'bum': (235, 168, 12),
+        }
+
         cls_id = -1
-        colors[cls_id] = (random.random(), random.random(), random.random())
         xmin, ymin, xmax, ymax = [int(x) for x in bbox]
-        bcolor = [x * 255 for x in colors[cls_id]]
+
+        if class_name.lower() in color_class_map:
+            temp = color_class_map[class_name]
+            bcolor = [x for x in temp]
+        else:
+            colors[cls_id] = (random.random(), random.random(), random.random())
+            bcolor = [x * 255 for x in colors[cls_id]]
+
         cv2.rectangle(img, (xmin, ymin), (xmax, ymax), bcolor, linewidth)
 
-        if class_names is not None and cls_id < len(class_names):
-            class_name = class_names[cls_id]
-        else:
-            class_name = str(cls_id) if cls_id >= 0 else ''
+
         score = '{:d}%'.format(int(scores.flat[i]*100)) if scores is not None else ''
         if class_name or score:
             y = ymin - 15 if ymin - 15 > 15 else ymin + 15
@@ -110,7 +127,9 @@ def process_img(img_path,annot_path, save_path):
     labels = np.asarray(classes)
     bbox_img = cv_plot_bbox(img,bboxes ,class_names=labels )
 
-    file_save_path = os.path.join(save_path, "test_" +img_path)
+    file_save_path = os.path.join(save_path, os.path.basename(img_path))
+
+    bbox_img = cv2.cvtColor(bbox_img, cv2.COLOR_RGB2BGR)
     cv2.imwrite(file_save_path, bbox_img)
 
 
@@ -127,8 +146,10 @@ if __name__ == '__main__':
 
 
 
-    for idx,annot_file_path in enumerate(annots_list):
+    for idx,annot_file_path in tqdm(enumerate(annots_list)):
 
+        annot_file_path = str(annot_file_path)
+        annot_file_path = os.path.basename(annot_file_path)
         if idx > MAX_FILES:
             print('MAX FILE LIMIT REACHED, BREAKING LOOP')
             break
