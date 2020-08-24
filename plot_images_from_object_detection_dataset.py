@@ -117,9 +117,9 @@ def process_img(img_path,annot_path, save_path):
 
 if __name__ == '__main__':
 
-    SAVE_FOLDER = ""
-    IMG_FOLDER = ""
-    ANNOTS_FOLDER = ""
+    SAVE_FOLDER = r"/mnt/efs/batches_from_BPO/Batch_1_24_08_2020/plots"
+    IMG_FOLDER = r"/mnt/efs/raw/img/"
+    ANNOTS_FOLDER = r"/mnt/efs/batches_from_BPO/Batch_1_24_08_2020/annots"
 
     MAX_FILES = 1000
 

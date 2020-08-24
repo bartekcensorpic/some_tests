@@ -16,6 +16,7 @@ from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from matplotlib import pyplot
 
+from evaluation.src.evaluations.binary_evaluation import calculate_binary_classification_metrics
 from platts_scalling_keras.network import create_model, get_gens
 import numpy as np
 import pandas as pd
@@ -104,41 +105,53 @@ def plot_confusion_matrix(cm,
 
 # Function to create model, required for KerasClassifier
 
-def prepare():
+def prepare(LOAD_FROM_DISK):
 
-    test_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_valid_with_binary.csv',converters={1:ast.literal_eval})
-    train_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_test_with_binary.csv',converters={1:ast.literal_eval})
-    path_to_trained_model = r'/mnt/efs/classification_results/algorithm_results/model_2020-07-23-22-04-35_MobileNetV2 - fine tuned/best_model.h5'
+    if not LOAD_FROM_DISK:
+        print('predicting data using model and csvs')
+        test_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_valid_with_binary.csv',converters={1:ast.literal_eval})
 
-    train_gen, test_gen = get_gens(test_df, train_df)
+        train_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_test_with_binary.csv',converters={1:ast.literal_eval})
 
-    model = create_model(path_to_trained_model)
+        path_to_trained_model = r'/mnt/efs/classification_results/algorithm_results/model_2020-07-23-22-04-35_MobileNetV2 - fine tuned/best_model.h5'
 
-    train_steps_per_epoch = np.ceil(train_gen.samples / train_gen.batch_size)
-    test_steps_per_epoch = np.ceil(test_gen.samples / test_gen.batch_size)
+        train_gen, test_gen = get_gens(test_df, train_df)
 
-    model_train_predictions = model.predict_generator(train_gen, steps=train_steps_per_epoch)
+        model = create_model(path_to_trained_model)
 
-    train_true_classes = train_df['BINARY_NUDE'].values
-    train_true_classes = train_true_classes * 1 # bool to int
+        train_steps_per_epoch = np.ceil(train_gen.samples / train_gen.batch_size)
+        test_steps_per_epoch = np.ceil(test_gen.samples / test_gen.batch_size)
 
-    # X_train, X_test, y_train, y_test,  =  train_test_split(predictions, true_classes, test_size=0.3, random_state=42, stratify=true_classes)
-    X_train = model_train_predictions
-    y_train = train_true_classes
+        model_train_predictions = model.predict_generator(train_gen, steps=train_steps_per_epoch)
 
-    np.save('X_train.npy', X_train)
-    np.save('y_train.npy', y_train)
+        train_true_classes = train_df['BINARY_NUDE'].values
+        train_true_classes = train_true_classes * 1 # bool to int
 
-    model_test_predictions = model.predict_generator(test_gen, steps=test_steps_per_epoch)
-    test_true_classes = test_df['BINARY_NUDE'].values
+        # X_train, X_test, y_train, y_test,  =  train_test_split(predictions, true_classes, test_size=0.3, random_state=42, stratify=true_classes)
+        X_train = model_train_predictions
+        y_train = train_true_classes
 
-    X_test = model_test_predictions
-    y_test = test_true_classes
+        np.save('X_train.npy', X_train)
+        np.save('y_train.npy', y_train)
 
-    np.save('X_test.npy', X_test)
-    np.save('y_test.npy', y_test)
+        model_test_predictions = model.predict_generator(test_gen, steps=test_steps_per_epoch)
+        test_true_classes = test_df['BINARY_NUDE'].values
 
-    return X_train,y_train,X_test,y_test
+        X_test = model_test_predictions
+        y_test = test_true_classes
+
+        np.save('X_test.npy', X_test)
+        np.save('y_test.npy', y_test)
+
+    else:
+        X_train = np.load('X_train.npy')
+        y_train = np.load('y_train.npy')
+        X_test = np.load('X_test.npy')
+        y_test = np.load('y_test.npy')
+        print('loading prepared data from disk')
+
+    return X_train, y_train, X_test, y_test
+
 
 def test(X_train,y_train,X_test,y_test):
     num_folds = 10
@@ -178,9 +191,23 @@ def test(X_train,y_train,X_test,y_test):
 
 
     #tuning best model
-    neighbors = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21]
-    param_grid = dict(n_neighbors=neighbors)
-    model = KNeighborsClassifier()
+    # neighbors = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21]
+    # param_grid = dict(n_neighbors=neighbors)
+    # model = KNeighborsClassifier()
+    #
+    # kfold = KFold(n_splits=num_folds, random_state=seed)
+    # grid = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, cv=kfold, iid=True)
+    # grid_result = grid.fit(X_train, y_train)
+    # print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
+    # means = grid_result.cv_results_['mean_test_score']
+    # stds = grid_result.cv_results_['std_test_score']
+    # params = grid_result.cv_results_['params']
+    # for mean, stdev, param in zip(means, stds, params):
+    #     print("%f (%f) with: %r" % (mean, stdev, param))
+    n_estimators = [100, 200, 300]
+
+    param_grid = dict(n_estimators=n_estimators)
+    model = AdaBoostClassifier()
 
     kfold = KFold(n_splits=num_folds, random_state=seed)
     grid = GridSearchCV(estimator=model, param_grid=param_grid, scoring=scoring, cv=kfold, iid=True)
@@ -196,8 +223,9 @@ def test(X_train,y_train,X_test,y_test):
 
 
     #finilizing model
+    model = AdaBoostClassifier(n_estimators=200)
     model.fit(X_train, y_train)
-    test_predictions = model.predict(X_test)
+    test_predictions = model.predict(X_test) #todo here should be predict proba
 
     print(confusion_matrix(y_test, test_predictions))
     print(classification_report(y_test, test_predictions))
@@ -205,16 +233,44 @@ def test(X_train,y_train,X_test,y_test):
     filename = 'finalized_model.sav'
     joblib.dump(model, filename)
 
+    cm = confusion_matrix(y_test, test_predictions)
+    f = sns.heatmap(cm, annot=True)
+    plt.show()
+    debug = 5
+    PREDICTION_THRESHOLD = 0.5
+    binary_evaluation_result = calculate_binary_classification_metrics(y_test, test_predictions, 'nudity', PREDICTION_THRESHOLD)
+
+    # precision vs recall for each threshold
+    (precision_full, recall_full, thresholds_full) = binary_evaluation_result.get_precision_recall_thresholds()
+
+    # show plot for precision, recall, thresholds
+    p_r_t_p_plot = binary_evaluation_result.get_precision_recall_threshold_plot()
+    p_r_t_p_plot.get_figure().show()
+
+
+    # show calibration curve
+    cal_curve = binary_evaluation_result.get_calibration_curve()
+    cal_curve.get_figure().show()
+
+    # show confusion matrix
+    cm = binary_evaluation_result.get_confusion_matrix()
+    cm.get_figure().show()
+
+    # show f1 vs threshold plot
+    f1_values, threshold_for_f1_values, f1_ths_ax = binary_evaluation_result.get_f1_thresholds_and_plot()
+    f1_ths_ax.get_figure().show()
+    debug = 5
+
 
 
 if __name__ == '__main__':
 
+    LOAD_FROM_DISK = True
+    X_train, y_train, X_test, y_test = prepare(LOAD_FROM_DISK)
 
-    #X_train, y_train, X_test, y_test = prepare()
-
-    print('MAKING DATA UP')
-    X1, Y1 = make_classification(n_features=9, n_redundant=0, n_informative=5, n_classes=2, n_samples=10000)
-    X_train, X_test, y_train, y_test,  =  train_test_split(X1, Y1, test_size=0.3, random_state=42, stratify=Y1)
+    # print('MAKING DATA UP')
+    # X1, Y1 = make_classification(n_features=9, n_redundant=0, n_informative=5, n_classes=2, n_samples=10000)
+    # X_train, X_test, y_train, y_test,  =  train_test_split(X1, Y1, test_size=0.3, random_state=42, stratify=Y1)
 
     test(X_train,y_train,X_test,y_test)
 
