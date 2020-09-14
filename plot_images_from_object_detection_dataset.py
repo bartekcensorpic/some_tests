@@ -94,13 +94,16 @@ def cv_plot_bbox(img, bboxes, scores=None, labels=None, thresh=0.5,
             'naked woman': (12, 235, 127),
             'naked man': (172, 235, 12),
             'bum': (235, 168, 12),
+            'penises': (255,255,255),
+            'penis': (255,255,255),
+
         }
 
         cls_id = -1
         xmin, ymin, xmax, ymax = [int(x) for x in bbox]
 
         if class_name.lower() in color_class_map:
-            temp = color_class_map[class_name]
+            temp = color_class_map[class_name.lower()]
             bcolor = [x for x in temp]
         else:
             colors[cls_id] = (random.random(), random.random(), random.random())
@@ -140,7 +143,7 @@ if __name__ == '__main__':
     IMG_FOLDER = r"/mnt/efs/raw/img/"
     ANNOTS_FOLDER = r"/mnt/efs/batches_from_BPO/Batch_1_24_08_2020/annots"
 
-    MAX_FILES = 1000
+    MAX_FILES = 9982
 
     annots_list = random.sample(list(Path(ANNOTS_FOLDER).glob('*.xml')),MAX_FILES)
 
@@ -158,11 +161,11 @@ if __name__ == '__main__':
         full_image_path = os.path.join(IMG_FOLDER, annot_file_path[:-3] + "jpg")
         if os.path.exists(full_image_path):
 
-
             try:
                 process_img(full_image_path, full_annot_path, SAVE_FOLDER)
             except Exception as e:
                 print('ERROR:', annot_file_path)
+                print(e)
                 continue
 
 

@@ -20,6 +20,14 @@ def get_gens(test_df,train_df):
 
     datagen = tf.keras.preprocessing.image.ImageDataGenerator(
         preprocessing_function=preprocessing_function,
+        brightness_range=[0.2, 1.0],
+        rotation_range=360,
+        zoom_range=[0.5, 1.0],
+        width_shift_range=0.1,
+        height_shift_range=0.1,
+        horizontal_flip=True,
+        vertical_flip=True,
+        shear_range=0.1,
         # samplewise_std_normalization = True,
     )
     batch_size = 16

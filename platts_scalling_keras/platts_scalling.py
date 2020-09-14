@@ -15,7 +15,6 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from matplotlib import pyplot
-
 from evaluation.src.evaluations.binary_evaluation import calculate_binary_classification_metrics
 from platts_scalling_keras.network import create_model, get_gens
 import numpy as np
@@ -109,45 +108,45 @@ def prepare(LOAD_FROM_DISK):
 
     if not LOAD_FROM_DISK:
         print('predicting data using model and csvs')
-        test_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_valid_with_binary.csv',converters={1:ast.literal_eval})
+        valid_df = pd.read_csv('/mnt/efs/classification_csv/blurred_datasets/blurred_val.csv',converters={1:ast.literal_eval})
 
-        train_df = pd.read_csv('/mnt/efs/classification_csv/shuffled_test_with_binary.csv',converters={1:ast.literal_eval})
+        test_df = pd.read_csv('/mnt/efs/classification_csv/blurred_datasets/blurred_test.csv',converters={1:ast.literal_eval})
 
-        path_to_trained_model = r'/mnt/efs/classification_results/algorithm_results/model_2020-07-23-22-04-35_MobileNetV2 - fine tuned/best_model.h5'
+        path_to_trained_model = r'/mnt/efs/blurr_detection_results/algorithm_results/model_2020-09-08-19-12-41_MobileNetV2 - well trained /best_model.h5'
 
-        train_gen, test_gen = get_gens(test_df, train_df)
+        val_gen, test_gen = get_gens(valid_df, test_df)
 
         model = create_model(path_to_trained_model)
 
-        train_steps_per_epoch = np.ceil(train_gen.samples / train_gen.batch_size)
+        train_steps_per_epoch = np.ceil(val_gen.samples / val_gen.batch_size)
         test_steps_per_epoch = np.ceil(test_gen.samples / test_gen.batch_size)
 
-        model_train_predictions = model.predict_generator(train_gen, steps=train_steps_per_epoch)
+        model_train_predictions = model.predict_generator(val_gen, steps=train_steps_per_epoch)
 
-        train_true_classes = train_df['BINARY_NUDE'].values
+        train_true_classes = test_df['binary_sharp'].values
         train_true_classes = train_true_classes * 1 # bool to int
 
         # X_train, X_test, y_train, y_test,  =  train_test_split(predictions, true_classes, test_size=0.3, random_state=42, stratify=true_classes)
         X_train = model_train_predictions
         y_train = train_true_classes
 
-        np.save('X_train.npy', X_train)
-        np.save('y_train.npy', y_train)
+        np.save('X_train_sharp.npy', X_train)
+        np.save('y_train_sharp.npy', y_train)
 
         model_test_predictions = model.predict_generator(test_gen, steps=test_steps_per_epoch)
-        test_true_classes = test_df['BINARY_NUDE'].values
+        test_true_classes = valid_df['binary_sharp'].values
 
         X_test = model_test_predictions
         y_test = test_true_classes
 
-        np.save('X_test.npy', X_test)
-        np.save('y_test.npy', y_test)
+        np.save('X_test_sharp.npy', X_test)
+        np.save('y_test_sharp.npy', y_test)
 
     else:
-        X_train = np.load('X_train.npy')
-        y_train = np.load('y_train.npy')
-        X_test = np.load('X_test.npy')
-        y_test = np.load('y_test.npy')
+        X_train = np.load('X_train_sharp.npy')
+        y_train = np.load('y_train_sharp.npy')
+        X_test = np.load('X_test_sharp.npy')
+        y_test = np.load('y_test_sharp.npy')
         print('loading prepared data from disk')
 
     return X_train, y_train, X_test, y_test
@@ -221,11 +220,11 @@ def test(X_train,y_train,X_test,y_test):
 
 
 
-
-    #finilizing model
-    model = AdaBoostClassifier(n_estimators=200)
+    #finilizing model # https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html
+    # have a look at class weights if using some other classifier
+    model = AdaBoostClassifier(n_estimators=200,)
     model.fit(X_train, y_train)
-    test_predictions = model.predict(X_test) #todo here should be predict proba
+    test_predictions = model.predict(X_test)
 
     print(confusion_matrix(y_test, test_predictions))
     print(classification_report(y_test, test_predictions))
@@ -267,10 +266,6 @@ if __name__ == '__main__':
 
     LOAD_FROM_DISK = True
     X_train, y_train, X_test, y_test = prepare(LOAD_FROM_DISK)
-
-    # print('MAKING DATA UP')
-    # X1, Y1 = make_classification(n_features=9, n_redundant=0, n_informative=5, n_classes=2, n_samples=10000)
-    # X_train, X_test, y_train, y_test,  =  train_test_split(X1, Y1, test_size=0.3, random_state=42, stratify=Y1)
 
     test(X_train,y_train,X_test,y_test)
 
