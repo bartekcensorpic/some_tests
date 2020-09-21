@@ -7,128 +7,89 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 
+
 def convert_annotation(xml_file_path):
 
     in_file = open(xml_file_path)
-    tree=ET.parse(in_file)
+    tree = ET.parse(in_file)
     root = tree.getroot()
 
     classes = []
     boxes = []
 
-    for obj in root.iter('object'):
-        difficult = obj.find('difficult').text
-        cls = obj.find('name').text
-        xmlbox = obj.find('bndbox')
-        b = (int(xmlbox.find('xmin').text), int(xmlbox.find('ymin').text), int(xmlbox.find('xmax').text), int(xmlbox.find('ymax').text))
+    for obj in root.iter("object"):
+        cls = obj.find("name").text
+        xmlbox = obj.find("bndbox")
+        b = (
+            int(xmlbox.find("xmin").text),
+            int(xmlbox.find("ymin").text),
+            int(xmlbox.find("xmax").text),
+            int(xmlbox.find("ymax").text),
+        )
         class_name = str(cls)
         boxes.append([a for a in b])
         classes.append(class_name)
 
     return classes, boxes
 
-def cv_plot_bbox(img, bboxes, scores=None, labels=None, thresh=0.5,
-                 class_names=None, colors=None,
-                 absolute_coordinates=True, scale=1.0, linewidth=2):
-    """Visualize bounding boxes with OpenCV.
 
-    Parameters
-    ----------
-    img : numpy.ndarray or mxnet.nd.NDArray
-        Image with shape `H, W, 3`.
-    bboxes : numpy.ndarray or mxnet.nd.NDArray
-        Bounding boxes with shape `N, 4`. Where `N` is the number of boxes.
-    scores : numpy.ndarray or mxnet.nd.NDArray, optional
-        Confidence scores of the provided `bboxes` with shape `N`.
-    labels : numpy.ndarray or mxnet.nd.NDArray, optional
-        Class labels of the provided `bboxes` with shape `N`.
-    thresh : float, optional, default 0.5
-        Display threshold if `scores` is provided. Scores with less than `thresh`
-        will be ignored in display, this is visually more elegant if you have
-        a large number of bounding boxes with very small scores.
-    class_names : list of str, optional
-        Description of parameter `class_names`.
-    colors : dict, optional
-        You can provide desired colors as {0: (255, 0, 0), 1:(0, 255, 0), ...}, otherwise
-        random colors will be substituted.
-    absolute_coordinates : bool
-        If `True`, absolute coordinates will be considered, otherwise coordinates
-        are interpreted as in range(0, 1).
-    scale : float
-        The scale of output image, which may affect the positions of boxes
-    linewidth : int, optional, default 2
-        Line thickness for bounding boxes.
-        Use negative values to fill the bounding boxes.
-
-    Returns
-    -------
-    numpy.ndarray
-        The image with detected results.
-
+def cv_plot_bbox(
+    img,
+    bboxes,
+    class_names=None,
+    color_class_map=None,
+    scale=1.0,
+    linewidth=2,
+):
+    """
+    Visualize bounding boxes with OpenCV.
     """
 
-
-    if labels is not None and not len(bboxes) == len(labels):
-        raise ValueError('The length of labels and bboxes mismatch, {} vs {}'
-                         .format(len(labels), len(bboxes)))
-    if scores is not None and not len(bboxes) == len(scores):
-        raise ValueError('The length of scores and bboxes mismatch, {} vs {}'
-                         .format(len(scores), len(bboxes)))
-
-
-    # use random colors if None is provided
-    if colors is None:
-        colors = dict()
+    colors = dict()
     for i, bbox in enumerate(bboxes):
-        if scores is not None and scores.flat[i] < thresh:
-            continue
-
         class_name = class_names[i]
-        color_class_map = {
-            'boobs/pecs': (235, 12, 56),
-            'nipples': (235, 12, 187),
-            'faces': (68, 12, 235),
-            'provocative': (12, 146, 235),
-            'vaginas': (12, 235, 198),
-            'vagina': (12, 235, 198),
-            'naked woman': (12, 235, 127),
-            'naked man': (172, 235, 12),
-            'bum': (235, 168, 12),
-            'penises': (255,255,255),
-            'penis': (255,255,255),
 
-        }
-
-        cls_id = -1
         xmin, ymin, xmax, ymax = [int(x) for x in bbox]
 
-        if class_name.lower() in color_class_map:
+        if (color_class_map is not None) and (class_name.lower() in color_class_map):
             temp = color_class_map[class_name.lower()]
             bcolor = [x for x in temp]
         else:
-            colors[cls_id] = (random.random(), random.random(), random.random())
-            bcolor = [x * 255 for x in colors[cls_id]]
+            colors[class_name] = (random.random(), random.random(), random.random())
+            bcolor = [x * 255 for x in colors[class_name]]
 
         cv2.rectangle(img, (xmin, ymin), (xmax, ymax), bcolor, linewidth)
 
-
-        score = '{:d}%'.format(int(scores.flat[i]*100)) if scores is not None else ''
-        if class_name or score:
+        if class_name:
             y = ymin - 15 if ymin - 15 > 15 else ymin + 15
-            cv2.putText(img, '{:s} {:s}'.format(class_name, score),
-                        (xmin, y), cv2.FONT_HERSHEY_SIMPLEX, min(scale/2, 2),
-                        bcolor, min(int(scale), 5), lineType=cv2.LINE_AA)
+            cv2.putText(
+                img,
+                "{:s}".format(class_name),
+                (xmin, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                min(scale / 2, 2),
+                bcolor,
+                min(int(scale), 5),
+                lineType=cv2.LINE_AA,
+            )
+        else:
+            #raise ValueError
+            print('Missing class name for a bounding box')
 
     return img
 
-def process_img(img_path,annot_path, save_path):
+
+def process_img(img_path, annot_path, save_path,color_class_map):
+
     img = cv2.imread(img_path, cv2.IMREAD_COLOR)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     classes, bboxes = convert_annotation(annot_path)
     bboxes = np.asarray(bboxes)
     labels = np.asarray(classes)
-    bbox_img = cv_plot_bbox(img,bboxes ,class_names=labels )
+    bbox_img = cv_plot_bbox(
+        img, bboxes, class_names=labels, color_class_map=color_class_map
+    )
 
     file_save_path = os.path.join(save_path, os.path.basename(img_path))
 
@@ -136,25 +97,41 @@ def process_img(img_path,annot_path, save_path):
     cv2.imwrite(file_save_path, bbox_img)
 
 
+if __name__ == "__main__":
 
-if __name__ == '__main__':
-
-    SAVE_FOLDER = r"/mnt/efs/batches_from_BPO/Batch_1_24_08_2020/plots"
+    SAVE_FOLDER = r"/mnt/efs/batches_from_BPO/Batch_2_07_09_2020/plots"
     IMG_FOLDER = r"/mnt/efs/raw/img/"
-    ANNOTS_FOLDER = r"/mnt/efs/batches_from_BPO/Batch_1_24_08_2020/annots"
-
-    MAX_FILES = 9982
-
-    annots_list = random.sample(list(Path(ANNOTS_FOLDER).glob('*.xml')),MAX_FILES)
+    ANNOTS_FOLDER = r"/mnt/efs/batches_from_BPO/Batch_2_07_09_2020/annots"
 
 
 
-    for idx,annot_file_path in tqdm(enumerate(annots_list)):
+    color_class_map = {
+        "boobs/pecs": (235, 12, 56),
+        "nipples": (235, 12, 187),
+        "faces": (68, 12, 235),
+        "provocative": (12, 146, 235),
+        "vaginas": (12, 235, 198),
+        "vagina": (12, 235, 198),
+        "naked woman": (12, 235, 127),
+        "naked man": (172, 235, 12),
+        "naked person": (172, 235, 12),
+        "bum": (235, 168, 12),
+        "penises": (255, 255, 255),
+        "penis": (255, 255, 255),
+    }
+
+    xml_files = list(Path(ANNOTS_FOLDER).glob("*.xml"))
+
+    MAX_FILES = len(xml_files)
+
+    annots_list = random.sample(xml_files, MAX_FILES)
+
+    for idx, annot_file_path in tqdm(enumerate(annots_list)):
 
         annot_file_path = str(annot_file_path)
         annot_file_path = os.path.basename(annot_file_path)
         if idx > MAX_FILES:
-            print('MAX FILE LIMIT REACHED, BREAKING LOOP')
+            print("MAX FILE LIMIT REACHED, BREAKING LOOP")
             break
         full_annot_path = os.path.join(ANNOTS_FOLDER, annot_file_path)
 
@@ -162,21 +139,14 @@ if __name__ == '__main__':
         if os.path.exists(full_image_path):
 
             try:
-                process_img(full_image_path, full_annot_path, SAVE_FOLDER)
+                process_img(full_image_path, full_annot_path, SAVE_FOLDER,color_class_map)
             except Exception as e:
-                print('ERROR:', annot_file_path)
+                print("ERROR:", annot_file_path)
                 print(e)
                 continue
 
-
         else:
-            #todo if we really want, we might just read extention from xml file but lets ignore this now
-            print(f"[INFO] image {full_image_path}, does not exist, might be missing file or wrong extention /shrug")
-
-
-
-
-
-
-
-
+            # todo if we really want, we might just read extension from xml file but lets ignore this for now
+            print(
+                f"[INFO] image {full_image_path}, does not exist, might be missing file or wrong extension /shrug"
+            )
